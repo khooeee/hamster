@@ -1,0 +1,126 @@
+#!/bin/sh
+
+# Projects live beside this script, at ../projects.
+# List every worktree of each project and the branch checked out there.
+LC_ALL=C
+export LC_ALL
+case $0 in
+    */*) script=$0 ;;
+    *) script=$(command -v -- "$0") || exit 1 ;;
+esac
+script_dir=$(CDPATH= cd -- "$(dirname -- "$script")" && pwd) || exit 1
+projects_link=$script_dir/../projects
+
+if [ ! -d "$projects_link" ]; then
+    printf 'Projects directory not found: %s\n' "$projects_link" >&2
+    exit 1
+fi
+
+projects_dir=$(CDPATH= cd -P -- "$projects_link" && pwd -P) || exit 1
+records=$(mktemp) || exit 1
+porcelain=$(mktemp) || exit 1
+trap 'rm -f "$records" "$porcelain"' EXIT
+
+# Print one record for the worktree currently held in wt.
+emit() {
+    [ -n "$wt" ] || return 0
+    n=$((n + 1))
+    if [ "$bare" = 1 ]; then
+        branch='(bare)'
+    elif [ -n "$branch_ref" ]; then
+        case $branch_ref in
+            refs/heads/*) branch=${branch_ref#refs/heads/} ;;
+            *) branch=$branch_ref ;;
+        esac
+    else
+        if ! short=$(git -C "$wt" rev-parse --short HEAD 2>/dev/null); then
+            short=$(printf '%.7s' "$head")
+        fi
+        branch="(detached at $short)"
+    fi
+    where=$wt
+    prefix=$projects_dir/
+    case $where in
+        "$prefix"*) where=${where#"$prefix"} ;;
+        *)
+            if [ -n "$HOME" ]; then
+                home_prefix=$HOME/
+                case $where in
+                    "$home_prefix"*) where="~/${where#"$home_prefix"}" ;;
+                esac
+            fi
+            ;;
+    esac
+    printf '%s\t%s\t%s\t%s\n' "$name" "$n" "$branch" "$where" >>"$records"
+    wt=
+}
+
+for project in "$projects_link"/* "$projects_link"/.[!.]* "$projects_link"/..?*; do
+    [ -d "$project" ] || continue
+    name=${project##*/}
+    # These directories hold linked worktrees; they are not projects.
+    case $name in
+        *.worktrees) continue ;;
+    esac
+    [ -e "$project/.git" ] || continue
+    git -C "$project" rev-parse --git-dir >/dev/null 2>&1 || continue
+    if ! git -C "$project" worktree list --porcelain >"$porcelain" 2>/dev/null; then
+        printf '%s: unable to list worktrees\n' "$name" >&2
+        continue
+    fi
+
+    wt=
+    head=
+    branch_ref=
+    bare=0
+    n=0
+    while IFS= read -r line || [ -n "$line" ]; do
+        case $line in
+            '')
+                emit
+                head=
+                branch_ref=
+                bare=0
+                ;;
+            'worktree '*)
+                emit
+                wt=${line#'worktree '}
+                head=
+                branch_ref=
+                bare=0
+                ;;
+            'HEAD '*)
+                head=${line#'HEAD '}
+                ;;
+            'branch '*)
+                branch_ref=${line#'branch '}
+                ;;
+            bare)
+                bare=1
+                ;;
+            detached)
+                branch_ref=
+                ;;
+        esac
+    done <"$porcelain"
+    emit
+done
+
+sort -t "$(printf '\t')" -k1,1 -k2,2n "$records" | awk -F '\t' '
+    BEGIN {
+        project_width = length("PROJECT")
+        branch_width = length("BRANCH")
+    }
+    {
+        names[NR] = $1
+        branches[NR] = $3
+        paths[NR] = $4
+        if (length($1) > project_width) project_width = length($1)
+        if (length($3) > branch_width) branch_width = length($3)
+    }
+    END {
+        printf "%-*s  %-*s  %s\n", project_width, "PROJECT", branch_width, "BRANCH", "WORKTREE"
+        for (i = 1; i <= NR; i++)
+            printf "%-*s  %-*s  %s\n", project_width, names[i], branch_width, branches[i], paths[i]
+    }
+'
