@@ -17,14 +17,15 @@ if [ ! -d "$projects_link" ]; then
 fi
 
 projects_dir=$(CDPATH= cd -P -- "$projects_link" && pwd -P) || exit 1
-records=$(mktemp) || exit 1
+mains=$(mktemp) || exit 1
+linked=$(mktemp) || exit 1
 porcelain=$(mktemp) || exit 1
-trap 'rm -f "$records" "$porcelain"' EXIT
+trap 'rm -f "$mains" "$linked" "$porcelain"' EXIT
 
 # Print one record for the worktree currently held in wt.
+# Git lists the main worktree first.
 emit() {
     [ -n "$wt" ] || return 0
-    n=$((n + 1))
     if [ "$bare" = 1 ]; then
         branch='(bare)'
     elif [ -n "$branch_ref" ]; then
@@ -51,7 +52,13 @@ emit() {
             fi
             ;;
     esac
-    printf '%s\t%s\t%s\t%s\n' "$name" "$n" "$branch" "$where" >>"$records"
+    if [ "$is_main" = 1 ]; then
+        printf '%s\t%s\n' "$name" "$branch" >>"$mains"
+        is_main=0
+    else
+        n=$((n + 1))
+        printf '%s\t%s\t%s\t%s\n' "$name" "$n" "$branch" "$where" >>"$linked"
+    fi
     wt=
 }
 
@@ -73,6 +80,7 @@ for project in "$projects_link"/* "$projects_link"/.[!.]* "$projects_link"/..?*;
     head=
     branch_ref=
     bare=0
+    is_main=1
     n=0
     while IFS= read -r line || [ -n "$line" ]; do
         case $line in
@@ -106,7 +114,34 @@ for project in "$projects_link"/* "$projects_link"/.[!.]* "$projects_link"/..?*;
     emit
 done
 
-sort -t "$(printf '\t')" -k1,1 -k2,2n "$records" | awk -F '\t' '
+print_heading() {
+    printf '%s\n' "$1"
+    line=$1
+    while [ -n "$line" ]; do
+        printf '='
+        line=${line#?}
+    done
+    printf '\n'
+}
+
+print_heading 'MAIN WORKTREE'
+sort -t "$(printf '\t')" -k1,1 "$mains" | awk -F '\t' '
+    BEGIN { width = length("PROJECT") }
+    {
+        names[NR] = $1
+        branches[NR] = $2
+        if (length($1) > width) width = length($1)
+    }
+    END {
+        printf "%-*s  %s\n", width, "PROJECT", "BRANCH"
+        for (i = 1; i <= NR; i++)
+            printf "%-*s  %s\n", width, names[i], branches[i]
+    }
+'
+
+printf '\n'
+print_heading 'LINKED WORKTREES'
+sort -t "$(printf '\t')" -k1,1 -k2,2n "$linked" | awk -F '\t' '
     BEGIN {
         project_width = length("PROJECT")
         branch_width = length("BRANCH")
@@ -114,13 +149,13 @@ sort -t "$(printf '\t')" -k1,1 -k2,2n "$records" | awk -F '\t' '
     {
         names[NR] = $1
         branches[NR] = $3
-        paths[NR] = $4
+        folders[NR] = $4
         if (length($1) > project_width) project_width = length($1)
         if (length($3) > branch_width) branch_width = length($3)
     }
     END {
-        printf "%-*s  %-*s  %s\n", project_width, "PROJECT", branch_width, "BRANCH", "WORKTREE"
+        printf "%-*s  %-*s  %s\n", project_width, "PROJECT", branch_width, "BRANCH", "FOLDER"
         for (i = 1; i <= NR; i++)
-            printf "%-*s  %-*s  %s\n", project_width, names[i], branch_width, branches[i], paths[i]
+            printf "%-*s  %-*s  %s\n", project_width, names[i], branch_width, branches[i], folders[i]
     }
 '
