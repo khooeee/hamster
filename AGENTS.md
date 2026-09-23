@@ -44,13 +44,13 @@ Do not start a heartbeat, background polling loop, watcher, task database, or ti
 
 Do the work in git worktrees. Several may be open at once, including across projects, branches, and sessions. Reuse a worktree only when it already belongs to this task, or the user points you at that pull request. Create another when the work is separate. Leave worktrees from other sessions alone. Do not use a project's main worktree unless the user explicitly asks to. The main worktree is the user's workspace. It may be on any branch. Keep its current branch unless the user requests a checkout or that branch's pull request is merged or closed.
 
-Create the worktree with `git worktree` from the project repo. Do not clone the project by hand. Place the worktree as a sibling of the project, under `./projects/`, so the project's own `git status` stays clean and Hamster's repo ignores it. Create `../<project>.worktrees` if it does not exist.
+Create the worktree with `git worktree` from the project repo. Do not clone the project by hand. Put it at `./worktrees/<project>/<branch>` from the Hamster root, and create `./worktrees/<project>` if it does not exist. Do not place a worktree anywhere under `./projects/`. Hamster already ignores `./worktrees/`, and the checkout sits outside the project repo, so that repo's `git status` stays clean.
+
+From `./projects/<project>`:
 
 ```bash
-git worktree add -b <branch> ../<project>.worktrees/<branch> origin/<default>
+git worktree add -b <branch> "$(cd ../.. && pwd)/worktrees/<project>/<branch>" origin/<default>
 ```
-
-That path is `./projects/<project>.worktrees/<branch>`.
 
 For read-only work, base the worktree on the origin default branch. Inspect `git status` before modifying a worktree.
 
@@ -82,7 +82,7 @@ Give a concise result: what was accomplished, which projects were affected, the 
 
 Do not remove a worktree that has an open pull request, unless the user asks to drop the work.
 
-After research finishes with no open pull request, leave that worktree in place. Write a one-line settle note beside it, outside the project repo, at `./projects/<project>.worktrees/<branch>.settled`, containing the time the research finished. The next time you run, check each settle note on its own. If the current user-message timestamp is 30 minutes or more after that worktree's time, remove it with `git worktree remove` and without `--force`, then remove its settle note. A worktree with no settle note, or a newer one, may belong to a session that is still working. Leave it. Do not wait, sleep, or start a timer.
+After research finishes with no open pull request, leave that worktree in place. Write a one-line settle note beside it, outside the project repo, at `./worktrees/<project>/<branch>.settled`, containing the time the research finished. The next time you run, check each settle note on its own. If the current user-message timestamp is 30 minutes or more after that worktree's time, remove it with `git worktree remove` and without `--force`, then remove its settle note. A worktree with no settle note, or a newer one, may belong to a session that is still working. Leave it. Do not wait, sleep, or start a timer.
 
 ## Code guidelines
 
