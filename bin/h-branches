@@ -18,6 +18,7 @@ fi
 for project in "$projects_dir"/* "$projects_dir"/.[!.]* "$projects_dir"/..?*; do
     [ -d "$project" ] || continue
     branch='(not a Git repository)'
+    status='-'
     # Require the child's own Git metadata; never discover the enclosing repo.
     if [ -e "$project/.git" ] &&
         git -C "$project" rev-parse --git-dir >/dev/null 2>&1; then
@@ -28,18 +29,32 @@ for project in "$projects_dir"/* "$projects_dir"/.[!.]* "$projects_dir"/..?*; do
         else
             branch='(HEAD unavailable)'
         fi
+        if porcelain=$(git -C "$project" status --porcelain 2>/dev/null); then
+            if [ -n "$porcelain" ]; then
+                status=dirty
+            else
+                status=clean
+            fi
+        else
+            status='(unknown)'
+        fi
     fi
-    printf '%s\t%s\n' "${project##*/}" "$branch"
+    printf '%s\t%s\t%s\n' "${project##*/}" "$branch" "$status"
 done | sort | awk -F '\t' '
-    BEGIN { width = length("PROJECT") }
+    BEGIN {
+        project_width = length("PROJECT")
+        branch_width = length("BRANCH")
+    }
     {
         names[NR] = $1
         branches[NR] = $2
-        if (length($1) > width) width = length($1)
+        statuses[NR] = $3
+        if (length($1) > project_width) project_width = length($1)
+        if (length($2) > branch_width) branch_width = length($2)
     }
     END {
-        printf "%-*s  %s\n", width, "PROJECT", "BRANCH"
+        printf "%-*s  %-*s  %s\n", project_width, "PROJECT", branch_width, "BRANCH", "STATUS"
         for (i = 1; i <= NR; i++)
-            printf "%-*s  %s\n", width, names[i], branches[i]
+            printf "%-*s  %-*s  %s\n", project_width, names[i], branch_width, branches[i], statuses[i]
     }
 '
