@@ -1,7 +1,7 @@
 #!/bin/sh
 
 # Projects live beside this script, at ../projects.
-# List every worktree of each project and the branch checked out there.
+# List each project's linked worktrees and the branch checked out there.
 LC_ALL=C
 export LC_ALL
 case $0 in
@@ -17,15 +17,19 @@ if [ ! -d "$projects_link" ]; then
 fi
 
 projects_dir=$(CDPATH= cd -P -- "$projects_link" && pwd -P) || exit 1
-mains=$(mktemp) || exit 1
 linked=$(mktemp) || exit 1
 porcelain=$(mktemp) || exit 1
-trap 'rm -f "$mains" "$linked" "$porcelain"' EXIT
+trap 'rm -f "$linked" "$porcelain"' EXIT
 
 # Print one record for the worktree currently held in wt.
 # Git lists the main worktree first.
 emit() {
     [ -n "$wt" ] || return 0
+    if [ "$is_main" = 1 ]; then
+        is_main=0
+        wt=
+        return 0
+    fi
     if [ "$bare" = 1 ]; then
         branch='(bare)'
     elif [ -n "$branch_ref" ]; then
@@ -52,13 +56,8 @@ emit() {
             fi
             ;;
     esac
-    if [ "$is_main" = 1 ]; then
-        printf '%s\t%s\n' "$name" "$branch" >>"$mains"
-        is_main=0
-    else
-        n=$((n + 1))
-        printf '%s\t%s\t%s\t%s\n' "$name" "$n" "$branch" "$where" >>"$linked"
-    fi
+    n=$((n + 1))
+    printf '%s\t%s\t%s\t%s\n' "$name" "$n" "$branch" "$where" >>"$linked"
     wt=
 }
 
@@ -114,33 +113,6 @@ for project in "$projects_link"/* "$projects_link"/.[!.]* "$projects_link"/..?*;
     emit
 done
 
-print_heading() {
-    printf '%s\n' "$1"
-    line=$1
-    while [ -n "$line" ]; do
-        printf '='
-        line=${line#?}
-    done
-    printf '\n'
-}
-
-print_heading 'MAIN WORKTREE'
-sort -t "$(printf '\t')" -k1,1 "$mains" | awk -F '\t' '
-    BEGIN { width = length("PROJECT") }
-    {
-        names[NR] = $1
-        branches[NR] = $2
-        if (length($1) > width) width = length($1)
-    }
-    END {
-        printf "%-*s  %s\n", width, "PROJECT", "BRANCH"
-        for (i = 1; i <= NR; i++)
-            printf "%-*s  %s\n", width, names[i], branches[i]
-    }
-'
-
-printf '\n'
-print_heading 'LINKED WORKTREES'
 sort -t "$(printf '\t')" -k1,1 -k2,2n "$linked" | awk -F '\t' '
     BEGIN {
         project_width = length("PROJECT")
