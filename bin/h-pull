@@ -1,0 +1,133 @@
+#!/bin/sh
+
+# Fast-forward each project's checked-out branch to the same branch on origin.
+# Leaves the checkout alone when that update is not a fast-forward.
+# Projects live beside this script, at ../projects.
+LC_ALL=C
+export LC_ALL
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
+
+if [ $# -ne 0 ]; then
+    printf 'usage: h-pull\n' >&2
+    exit 1
+fi
+
+case $0 in
+    */*) script=$0 ;;
+    *) script=$(command -v -- "$0") || exit 1 ;;
+esac
+script_dir=$(CDPATH= cd -- "$(dirname -- "$script")" && pwd) || exit 1
+projects_dir=$script_dir/../projects
+
+if [ ! -d "$projects_dir" ]; then
+    printf 'Projects directory not found: %s\n' "$projects_dir" >&2
+    exit 1
+fi
+
+err=$(mktemp) || exit 1
+trap 'rm -f "$err"' EXIT
+
+forwarded=0
+current=0
+ahead_n=0
+skipped=0
+failed=0
+
+for project in "$projects_dir"/* "$projects_dir"/.[!.]* "$projects_dir"/..?*; do
+    [ -d "$project" ] || continue
+    name=${project##*/}
+    # These directories hold linked worktrees; they are not projects.
+    case $name in
+        *.worktrees) continue ;;
+    esac
+    # Require the child's own Git metadata; never discover the enclosing repo.
+    [ -e "$project/.git" ] || continue
+    git -C "$project" rev-parse --git-dir >/dev/null 2>&1 || continue
+
+    if ! branch=$(git -C "$project" symbolic-ref --quiet --short HEAD 2>/dev/null); then
+        printf '%s: skipped (detached HEAD)\n' "$name"
+        skipped=$((skipped + 1))
+        continue
+    fi
+    if ! git -C "$project" rev-parse --verify --quiet HEAD >/dev/null; then
+        printf '%s: skipped (no commits on %s)\n' "$name" "$branch"
+        skipped=$((skipped + 1))
+        continue
+    fi
+    if ! git -C "$project" remote get-url origin >/dev/null 2>&1; then
+        printf '%s: skipped (no origin)\n' "$name"
+        skipped=$((skipped + 1))
+        continue
+    fi
+
+    if ! git -C "$project" fetch --quiet origin "$branch" >"$err" 2>&1; then
+        if grep -q "couldn't find remote ref" "$err"; then
+            printf '%s: skipped (origin has no %s)\n' "$name" "$branch"
+            skipped=$((skipped + 1))
+        else
+            printf '%s: fetch failed\n' "$name"
+            sed 's/^/  /' "$err"
+            failed=$((failed + 1))
+        fi
+        continue
+    fi
+
+    before=$(git -C "$project" rev-parse --short HEAD) || {
+        printf '%s: cannot read HEAD\n' "$name"
+        failed=$((failed + 1))
+        continue
+    }
+    if ! counts=$(git -C "$project" rev-list --left-right --count HEAD...FETCH_HEAD 2>"$err"); then
+        printf '%s: cannot compare %s with origin\n' "$name" "$branch"
+        sed 's/^/  /' "$err"
+        failed=$((failed + 1))
+        continue
+    fi
+    ahead=$(printf '%s\n' "$counts" | awk '{print $1}')
+    behind=$(printf '%s\n' "$counts" | awk '{print $2}')
+    case $ahead in
+        ''|*[!0-9]*) ahead= ;;
+    esac
+    case $behind in
+        ''|*[!0-9]*) behind= ;;
+    esac
+    if [ -z "$ahead" ] || [ -z "$behind" ]; then
+        printf '%s: cannot compare %s with origin\n' "$name" "$branch"
+        failed=$((failed + 1))
+        continue
+    fi
+
+    if [ "$behind" -eq 0 ] && [ "$ahead" -eq 0 ]; then
+        printf '%s: up to date on %s\n' "$name" "$branch"
+        current=$((current + 1))
+        continue
+    fi
+    if [ "$behind" -eq 0 ]; then
+        printf '%s: ahead %s on %s\n' "$name" "$ahead" "$branch"
+        ahead_n=$((ahead_n + 1))
+        continue
+    fi
+    if [ "$ahead" -ne 0 ]; then
+        printf '%s: cannot fast-forward %s (%s local, %s on origin)\n' \
+            "$name" "$branch" "$ahead" "$behind"
+        failed=$((failed + 1))
+        continue
+    fi
+
+    if ! git -C "$project" merge --ff-only --quiet FETCH_HEAD >"$err" 2>&1; then
+        printf '%s: cannot fast-forward %s\n' "$name" "$branch"
+        sed 's/^/  /' "$err"
+        failed=$((failed + 1))
+        continue
+    fi
+    after=$(git -C "$project" rev-parse --short HEAD) || after=$before
+    printf '%s: fast-forwarded %s (%s..%s)\n' "$name" "$branch" "$before" "$after"
+    forwarded=$((forwarded + 1))
+done
+
+printf 'fast-forwarded %s, up to date %s, ahead %s, skipped %s, failed %s\n' \
+    "$forwarded" "$current" "$ahead_n" "$skipped" "$failed"
+
+if [ "$failed" -ne 0 ]; then
+    exit 1
+fi
