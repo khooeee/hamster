@@ -13,6 +13,21 @@ cd
 git clone git@github.com:khooeee/hamster.git
 ```
 
+Add Hamster's helpers to PATH for your shell:
+
+```sh
+# Bash
+echo 'export PATH=~/hamster/bin:$PATH' >> ~/.bashrc
+echo 'alias ch="cd ~/hamster"' >> ~/.bashrc
+echo 'alias chp="cd ~/hamster/projects"' >> ~/.bashrc
+
+
+# Zsh
+echo 'export PATH=~/hamster/bin:$PATH' >> ~/.zshrc
+echo 'alias ch="cd ~/hamster"' >> ~/.zshrc
+echo 'alias chp="cd ~/hamster/projects"' >> ~/.zshrc
+```
+
 Add `TERMINOLOGY.md` if you have terms that refer to some aspect of your project (i.e. basically a shortcut for a project subdirectory).
 
 ## Default Conventions
