@@ -1,0 +1,62 @@
+#!/bin/sh
+
+# Projects live beside this script, at ../projects.
+# List each project's local branches other than its default branch.
+LC_ALL=C
+export LC_ALL
+case $0 in
+    */*) script=$0 ;;
+    *) script=$(command -v -- "$0") || exit 1 ;;
+esac
+script_dir=$(CDPATH= cd -- "$(dirname -- "$script")" && pwd) || exit 1
+projects_dir=$script_dir/../projects
+
+if [ ! -d "$projects_dir" ]; then
+    printf 'Projects directory not found: %s\n' "$projects_dir" >&2
+    exit 1
+fi
+
+for project in "$projects_dir"/* "$projects_dir"/.[!.]* "$projects_dir"/..?*; do
+    [ -d "$project" ] || continue
+    name=${project##*/}
+    # These directories hold linked worktrees; they are not projects.
+    case $name in
+        *.worktrees) continue ;;
+    esac
+    # Require the child's own Git metadata; never discover the enclosing repo.
+    [ -e "$project/.git" ] || continue
+    git -C "$project" rev-parse --git-dir >/dev/null 2>&1 || continue
+
+    default=
+    if ref=$(git -C "$project" symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null); then
+        case $ref in
+            origin/*) default=${ref#origin/} ;;
+            *) default=$ref ;;
+        esac
+    elif git -C "$project" show-ref --verify --quiet refs/heads/main; then
+        default=main
+    elif git -C "$project" show-ref --verify --quiet refs/heads/master; then
+        default=master
+    fi
+
+    git -C "$project" for-each-ref --format='%(refname:short)' refs/heads |
+        while IFS= read -r branch; do
+            [ -n "$branch" ] || continue
+            [ "$branch" = "$default" ] && continue
+            printf '%s\t%s\n' "$name" "$branch"
+        done
+done | sort -t "$(printf '\t')" -k1,1 -k2,2 | awk -F '\t' '
+    BEGIN {
+        project_width = length("PROJECT")
+    }
+    {
+        names[NR] = $1
+        branches[NR] = $2
+        if (length($1) > project_width) project_width = length($1)
+    }
+    END {
+        printf "%-*s  %s\n", project_width, "PROJECT", "BRANCH"
+        for (i = 1; i <= NR; i++)
+            printf "%-*s  %s\n", project_width, names[i], branches[i]
+    }
+'
