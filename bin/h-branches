@@ -18,7 +18,7 @@ fi
 for project in "$projects_dir"/* "$projects_dir"/.[!.]* "$projects_dir"/..?*; do
     [ -d "$project" ] || continue
     branch='(not a Git repository)'
-    status='-'
+    status=dirty
     # Require the child's own Git metadata; never discover the enclosing repo.
     if [ -e "$project/.git" ] &&
         git -C "$project" rev-parse --git-dir >/dev/null 2>&1; then
@@ -30,31 +30,39 @@ for project in "$projects_dir"/* "$projects_dir"/.[!.]* "$projects_dir"/..?*; do
             branch='(HEAD unavailable)'
         fi
         if porcelain=$(git -C "$project" status --porcelain 2>/dev/null); then
-            if [ -n "$porcelain" ]; then
-                status=dirty
-            else
+            if [ -z "$porcelain" ]; then
                 status=clean
             fi
-        else
-            status='(unknown)'
         fi
     fi
-    printf '%s\t%s\t%s\n' "${project##*/}" "$branch" "$status"
-done | sort | awk -F '\t' '
-    BEGIN {
+    printf '%s\t%s\t%s\n' "$status" "${project##*/}" "$branch"
+done | sort -t "$(printf '\t')" -k1,1 -k2,2 | awk -F '\t' '
+    function table(label, n, names, branches,    i, project_width, branch_width) {
         project_width = length("PROJECT")
         branch_width = length("BRANCH")
+        for (i = 1; i <= n; i++) {
+            if (length(names[i]) > project_width) project_width = length(names[i])
+            if (length(branches[i]) > branch_width) branch_width = length(branches[i])
+        }
+        printf "%s\n", label
+        printf "%-*s  %s\n", project_width, "PROJECT", "BRANCH"
+        for (i = 1; i <= n; i++)
+            printf "%-*s  %s\n", project_width, names[i], branches[i]
+    }
+    $1 == "clean" {
+        clean_n++
+        clean_names[clean_n] = $2
+        clean_branches[clean_n] = $3
+        next
     }
     {
-        names[NR] = $1
-        branches[NR] = $2
-        statuses[NR] = $3
-        if (length($1) > project_width) project_width = length($1)
-        if (length($2) > branch_width) branch_width = length($2)
+        dirty_n++
+        dirty_names[dirty_n] = $2
+        dirty_branches[dirty_n] = $3
     }
     END {
-        printf "%-*s  %-*s  %s\n", project_width, "PROJECT", branch_width, "BRANCH", "STATUS"
-        for (i = 1; i <= NR; i++)
-            printf "%-*s  %-*s  %s\n", project_width, names[i], branch_width, branches[i], statuses[i]
+        table("CLEAN", clean_n, clean_names, clean_branches)
+        printf "\n"
+        table("DIRTY", dirty_n, dirty_names, dirty_branches)
     }
 '
