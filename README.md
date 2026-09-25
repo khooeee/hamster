@@ -4,7 +4,7 @@ Originally inspired by https://github.com/kunchenguid/firstmate/
 
 Firstmate is amazing, but honestly it does way more than what I need it for.  So this is a smaller & opinionated single player version for speed & token efficiency.
 
-Start your coding agent sessions in the hamster folder with all your Github repos under the projects directory, and start working across multiple projects efficiently.
+Start your coding agent in the hamster folder with all your Github repos under the projects directory, and begin working across multiple projects from the same session easily.  You can start multiple sessions as well, just as long as the sessions are not dogpiling on each other's changes.
 
 ## Setup
 
@@ -36,5 +36,9 @@ See bin folder for relevant helper scripts that will be very useful for day-to-d
 
 - Any requested code change will open a PR immediately, and any related changes will commit and push to the PR immediately.
 - When a PR is merged or closed, it will delete all worktrees & branches immediately. If your main worktree is on the same branch, it will also switch back to the default branch and fast forward it to latest.
+
+## Why the name hamster?
+
+Aside from being darn cute, hamsters are solitary creatures that generally work alone.  That being said, a hamster session will happily create subagents to do work in parallel.
 
 Licensed under the [MIT License](LICENSE).
